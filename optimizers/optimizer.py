@@ -1,5 +1,4 @@
-""" Copyright chriskeraly
-    Copyright (c) 2019 Lumerical Inc. """
+
 
 import copy
 import numpy as np
