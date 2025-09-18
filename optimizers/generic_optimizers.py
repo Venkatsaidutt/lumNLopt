@@ -1,5 +1,4 @@
-""" Copyright chriskeraly
-    Copyright (c) 2019 Lumerical Inc. """
+
 
 import scipy as sp
 import scipy.optimize as spo
