@@ -3,6 +3,7 @@
 from lumopt.geometries.geometry import Geometry
 from lumopt.utilities.materials import Material
 from lumopt.lumerical_methods.lumerical_scripts import set_spatial_interp, get_eps_from_sim
+from lumopt.lumerical_methods.lumerical_scripts import set_spatial_interp, get_eps_from_sim, setup_anisotropic_rectangle, get_anisotropic_fields           
 
 import lumapi
 import numpy as np
@@ -640,3 +641,30 @@ class RectangleClusteringTopology(Geometry):
         except Exception as e:
             print(f"Error loading from file: {e}")
             raise
+    def _integrate_over_rectangle(self, rect, integrand_func, wavelengths):
+        
+        
+    """
+    Integrate the adjoint sensitivity over a rectangle region.
+    """
+        try:                 
+            gradient = 0.0
+            dV = self.dx * self.dy * self.dz
+        
+        # Simple spatial integration over rectangle
+            x_centers = np.linspace(rect['x_min'], rect['x_max'], 5)  # 5 sample points
+            y_centers = np.linspace(rect['y_min'], rect['y_max'], 3)  # 3 sample points
+            z_centers = self.z
+        
+            for wl in wavelengths:
+                for x_pos in x_centers:
+                    for y_pos in y_centers:
+                        for z_pos in z_centers:
+                            integrand_value = integrand_func(x_pos, y_pos, z_pos, wl)
+                            gradient += integrand_value * dV
+        
+            return gradient
+        
+        except Exception as e:
+            print(f"Error in rectangle integration: {e}")
+            return 0.0
