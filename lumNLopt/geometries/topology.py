@@ -213,7 +213,12 @@ class RectangleClusteringTopology(Geometry):
             self._add_rectangles_to_lumerical(fdtd, only_update)
             
         except Exception as e:
-            print(f"Error in add_geo: {e}")
+            print(f"Error in add_geo: {e}"from lumopt.lumerical_methods.lumerical_scripts import (
+    set_spatial_interp, 
+    get_eps_from_sim,
+    setup_anisotropic_rectangle,     # ADD THIS
+    get_anisotropic_fields           # ADD THIS
+))
             print(f"Current parameters: {self.current_params}")
             raise
 
@@ -266,36 +271,38 @@ class RectangleClusteringTopology(Geometry):
             raise
 
     def _add_rectangles_to_lumerical(self, fdtd, only_update):
-        """
-        Add or update rectangle structures in Lumerical CAD.
-        FIXED: Better error handling and object management.
-        """
         
-        for rect in self.rectangles:
-            rect_name = rect['name']
+    """Use the setup_anisotropic_rectangle function consistently"""
+    
+       for rect in self.rectangles:
+           rect_name = rect['name']
+           
+           try:
+               if not only_update:
+                   fdtd.addrect()
+                   fdtd.set('name', rect_name)
+                   self.rectangle_objects.append(rect_name)
             
-            try:
-                if not only_update:
-                    # Create new rectangle
-                    fdtd.addrect()
-                    fdtd.set('name', rect_name)
-                    self.rectangle_objects.append(rect_name)
+            # Use your setup_anisotropic_rectangle function
+               rect_params = {
+                'x_min': rect['x_min'],
+                'x_max': rect['x_max'], 
+                'y_min': rect['y_min'],
+                'y_max': rect['y_max'],
+                'z_center': rect['z_center'],
+                'z_span': rect['z_span']
+                  }
+            
+               success = setup_anisotropic_rectangle(fdtd, rect_name, rect_params, rect['eps_properties'])
+            
+               if not success:
+                   raise RuntimeError(f"Failed to setup rectangle {rect_name}")
                 
-                # Set rectangle geometry
-                fdtd.setnamed(rect_name, 'x min', rect['x_min'])
-                fdtd.setnamed(rect_name, 'x max', rect['x_max'])
-                fdtd.setnamed(rect_name, 'y min', rect['y_min'])
-                fdtd.setnamed(rect_name, 'y max', rect['y_max'])
-                fdtd.setnamed(rect_name, 'z', rect['z_center'])
-                fdtd.setnamed(rect_name, 'z span', rect['z_span'])
-                
-                # Set material properties (isotropic or anisotropic)
-                self._set_material_properties(fdtd, rect_name, rect['eps_properties'])
-                
-            except Exception as e:
-                print(f"Error adding/updating rectangle {rect_name}: {e}")
-                raise
-                
+           except Exception as e:
+               print(f"Error adding/updating rectangle {rect_name}: {e}")
+               raise
+
+
     def _set_material_properties(self, fdtd, object_name, eps_props):
         
         
@@ -313,15 +320,15 @@ class RectangleClusteringTopology(Geometry):
                 fdtd.setnamed(object_name, 'index y', np.sqrt(eps_props['eps_yy']))
                 fdtd.setnamed(object_name, 'index z', np.sqrt(eps_props['eps_zz']))
                 
-        else:
-            # Isotropic material
-            n_value = np.sqrt(eps_props['eps_xx'])
-            fdtd.setnamed(object_name, 'index', float(n_value))
+                # Isotropic material
+            else:
+                n_value = np.sqrt(eps_props['eps_xx'])
+                fdtd.setnamed(object_name, 'index', float(n_value))
             
             
-    except Exception as e:
-        print(f"Error setting material properties for {object_name}: {e}")
-        raise
+        except Exception as e:
+            print(f"Error setting material properties for {object_name}: {e}")
+            raise
 
     def calculate_gradients_manual(self, forward_fields, adjoint_fields, wavelengths):
         """
