@@ -406,95 +406,221 @@ class RectangleClusteringTopology(Geometry):
         
         return gradient
 
+
     def _integrate_adjoint_sensitivity(self, E_forward, E_adjoint, deps_tensor, rect, wavelengths, dwidth_dfraction):
         """
-        FIXED: Flexible field integration handling different field data formats.
+        TENSOR-ONLY adjoint sensitivity integration - NO scalar fallbacks.
+        If tensor field access fails, raises informative error rather than giving wrong gradients.
         """
         
         gradient = 0.0
         
         try:
-            # Method 1: Try direct array access (5D format: [x,y,z,wl,field_component])
+            # Method 1: Direct tensor array access [Ex, Ey, Ez] at each point
+            x_mask = (self.x >= rect['x_min']) & (self.x <= rect['x_max'])
+            y_mask = (self.y >= rect['y_min']) & (self.y <= rect['y_max'])
+            
+            dV = self.dx * self.dy * self.dz
+            
+            for wl_idx, wl in enumerate(wavelengths):
+                for i in np.where(x_mask)[0]:
+                    for j in np.where(y_mask)[0]:
+                        for k in range(len(self.z)):
+                            
+                            # Extract field vectors [Ex, Ey, Ez]
+                            E_f = E_forward[i, j, k, wl_idx, :]  # Shape: (3,)
+                            E_a = E_adjoint[i, j, k, wl_idx, :]  # Shape: (3,)
+                            
+                            # Tensor contraction: E_forward^H * deps_tensor * E_adjoint
+                            field_product = 0.0
+                            for alpha in range(3):
+                                for beta in range(3):
+                                    field_product += (np.conj(E_f[alpha]) * 
+                                                    deps_tensor[alpha, beta] * 
+                                                    E_a[beta])
+                            
+                            gradient += np.real(field_product) * dV
+            
+            print(f"✓ Tensor gradient calculated via direct array access")
+            return gradient * dwidth_dfraction * eps0
+            
+        except (IndexError, TypeError, KeyError, AttributeError) as e1:
+            print(f"Direct array access failed: {e1}")
+            
             try:
-                x_mask = (self.x >= rect['x_min']) & (self.x <= rect['x_max'])
-                y_mask = (self.y >= rect['y_min']) & (self.y <= rect['y_max'])
+                # Method 2: Field object access with tensor operations
+                x_centers = (self.x[:-1] + self.x[1:]) / 2
+                y_centers = (self.y[:-1] + self.y[1:]) / 2
+                z_centers = self.z
                 
                 dV = self.dx * self.dy * self.dz
                 
-                for wl_idx, wl in enumerate(wavelengths):
-                    for i in np.where(x_mask)[0]:
-                        for j in np.where(y_mask)[0]:
-                            for k in range(len(self.z)):
-                                
-                                # Extract field components [Ex, Ey, Ez]
-                                E_f = E_forward[i, j, k, wl_idx, :]  
-                                E_a = E_adjoint[i, j, k, wl_idx, :]  
-                                
-                                # Adjoint sensitivity: Re[E_forward^H * deps_tensor * E_adjoint]
-                                field_product = 0.0
-                                for alpha in range(3):
-                                    for beta in range(3):
-                                        field_product += (np.conj(E_f[alpha]) * 
-                                                        deps_tensor[alpha, beta] * 
-                                                        E_a[beta])
-                                
-                                gradient += np.real(field_product) * dV
-                                
+                for wl in wavelengths:
+                    for x_pos in x_centers:
+                        if rect['x_min'] <= x_pos <= rect['x_max']:
+                            for y_pos in y_centers:
+                                if rect['y_min'] <= y_pos <= rect['y_max']:
+                                    for z_pos in z_centers:
+                                        
+                                        # Get field vectors using object methods
+                                        E_f = E_forward.getfield(x_pos, y_pos, z_pos, wl)  # [Ex, Ey, Ez]
+                                        E_a = E_adjoint.getfield(x_pos, y_pos, z_pos, wl)   # [Ex, Ey, Ez]
+                                        
+                                        # Verify we got vectors, not scalars
+                                        if np.isscalar(E_f) or np.isscalar(E_a):
+                                            raise ValueError(f"Field extraction returned scalar instead of vector: E_f={E_f}, E_a={E_a}")
+                                        
+                                        if len(E_f) != 3 or len(E_a) != 3:
+                                            raise ValueError(f"Field vectors wrong size: E_f.shape={np.array(E_f).shape}, E_a.shape={np.array(E_a).shape}")
+                                        
+                                        # Tensor contraction: E_forward^H * deps_tensor * E_adjoint
+                                        field_product = 0.0
+                                        for alpha in range(3):
+                                            for beta in range(3):
+                                                field_product += (np.conj(E_f[alpha]) * 
+                                                                deps_tensor[alpha, beta] * 
+                                                                E_a[beta])
+                                        
+                                        gradient += np.real(field_product) * dV
+                                        
+                print(f"✓ Tensor gradient calculated via field object access")
                 return gradient * dwidth_dfraction * eps0
                 
-            except (IndexError, TypeError, KeyError) as e1:
-                print(f"Direct array access failed: {e1}")
+            except Exception as e2:
+                # NO SCALAR FALLBACK - raise informative error instead
+                error_msg = f"""
+                TENSOR FIELD ACCESS FAILED - Cannot calculate anisotropic gradients!
                 
-                # Method 2: Try field object method access
+                Direct array access error: {e1}
+                Field object access error: {e2}
+                
+                This means the field data format doesn't match expected structure.
+                
+                SOLUTIONS:
+                1. Check field extraction format in Lumerical:
+                   - Ensure E_forward/E_adjoint contain vector fields [Ex,Ey,Ez] 
+                   - Verify array dimensions: [x, y, z, wavelength, field_component]
+                
+                2. Debug field structure:
+                   print(f"E_forward type: {{type(E_forward)}}")
+                   print(f"E_forward shape: {{getattr(E_forward, 'shape', 'No shape attr')}}")
+                   if hasattr(E_forward, 'E'):
+                       print(f"E_forward.E shape: {{E_forward.E.shape}}")
+                
+                3. Check Lumerical monitor setup:
+                   - Verify 'opt_fields' monitor records E-field components
+                   - Ensure spatial interpolation is set correctly
+                   - Check that monitor spans the design region
+                
+                CRITICAL: No scalar fallback used - anisotropic optimization requires tensor fields!
+                """
+                
+                raise RuntimeError(error_msg) from e2
+
+    def calculate_gradients_manual(self, forward_fields, adjoint_fields, wavelengths):
+        """
+        ENHANCED: Tensor-only gradient calculation with better error handling
+        """
+        
+        try:
+            gradients = np.zeros(self.num_params)
+            
+            # Validate field data
+            if forward_fields is None or adjoint_fields is None:
+                raise ValueError("Forward or adjoint fields are None - run simulations first")
+            
+            print(f"Calculating anisotropic gradients for {self.num_params} rectangle parameters...")
+            print(f"Field types: forward={type(forward_fields)}, adjoint={type(adjoint_fields)}")
+            
+            # Debug field structure
+            if hasattr(forward_fields, 'E'):
+                print(f"Forward field shape: {forward_fields.E.shape}")
+            if hasattr(adjoint_fields, 'E'):
+                print(f"Adjoint field shape: {adjoint_fields.E.shape}")
+            
+            for param_idx in range(self.num_params):
                 try:
-                    # Assume field objects with getfield method
-                    x_centers = (self.x[:-1] + self.x[1:]) / 2
-                    y_centers = (self.y[:-1] + self.y[1:]) / 2
-                    z_centers = self.z
+                    # Calculate sensitivity w.r.t. fractional width parameter
+                    grad_value = self._calculate_parameter_gradient(
+                        param_idx, forward_fields, adjoint_fields, wavelengths)
+                    gradients[param_idx] = grad_value
                     
-                    dV = self.dx * self.dy * self.dz
+                    print(f"  Parameter {param_idx}: gradient = {grad_value:.6e}")
                     
-                    for wl in wavelengths:
-                        for x_pos in x_centers:
-                            if rect['x_min'] <= x_pos <= rect['x_max']:
-                                for y_pos in y_centers:
-                                    if rect['y_min'] <= y_pos <= rect['y_max']:
-                                        for z_pos in z_centers:
-                                            
-                                            # Try field object extraction
-                                            E_f = E_forward.getfield(x_pos, y_pos, z_pos, wl)
-                                            E_a = E_adjoint.getfield(x_pos, y_pos, z_pos, wl)
-                                            
-                                            # Compute sensitivity
-                                            field_product = 0.0
-                                            for alpha in range(3):
-                                                for beta in range(3):
-                                                    field_product += (np.conj(E_f[alpha]) * 
-                                                                    deps_tensor[alpha, beta] * 
-                                                                    E_a[beta])
-                                            
-                                            gradient += np.real(field_product) * dV
-                                            
-                    return gradient * dwidth_dfraction * eps0
-                    
-                except Exception as e2:
-                    print(f"Field object access failed: {e2}")
-                    
-                    # Method 3: Simplified approximation
-                    print("Using simplified gradient approximation")
-                    
-                    # Estimate based on average field values
-                    rect_volume = rect['width'] * (self.y.max() - self.y.min()) * self.depth
-                    avg_deps = np.mean(np.diag(deps_tensor))
-                    
-                    # Simple approximation: gradient ∝ volume × material contrast
-                    gradient = rect_volume * avg_deps * dwidth_dfraction * eps0
-                    
-                    return gradient
-                    
+                except Exception as e:
+                    print(f"ERROR calculating gradient for parameter {param_idx}: {e}")
+                    # Re-raise instead of setting to zero - we need to fix field access
+                    raise RuntimeError(f"Gradient calculation failed for parameter {param_idx}") from e
+            
+            # Apply constraint projection (remove component along [1,1,1,...])
+            gradients = self._apply_constraint_projection(gradients)
+            
+            # Final validation
+            if np.any(np.isnan(gradients)) or np.any(np.isinf(gradients)):
+                raise ValueError(f"Invalid gradients detected: {gradients}")
+            
+            print(f"✓ Tensor gradients computed successfully")
+            print(f"  Gradient vector: {gradients}")
+            print(f"  Gradient norm: {np.linalg.norm(gradients):.6e}")
+            print(f"  Constraint projection applied: sum = {np.sum(gradients):.2e} (should be ~0)")
+            
+            return gradients
+            
         except Exception as e:
-            print(f"All field integration methods failed: {e}")
+            error_msg = f"""
+            ANISOTROPIC GRADIENT CALCULATION FAILED!
+            
+            Error: {e}
+            
+            This is a critical failure - cannot proceed with anisotropic optimization.
+            
+            CHECK:
+            1. Forward/adjoint simulations completed successfully
+            2. Field monitors ('opt_fields') cover design region  
+            3. Field data contains vector components [Ex, Ey, Ez]
+            4. Monitor spatial interpolation set correctly
+            
+            DEBUGGING STEPS:
+            1. Run simple field extraction test:
+               E_test = forward_fields.getfield(x_center, y_center, z_center, wavelength)
+               print(f"Test field: {{E_test}}, type: {{type(E_test)}}")
+            
+            2. Check if fields.E attribute exists and has correct shape
+            
+            3. Verify Lumerical simulation completed without errors
+            """
+            
+            print(error_msg)
+            raise RuntimeError("Anisotropic gradient calculation failed - cannot continue optimization") from e
+
+    def _integrate_over_rectangle(self, rect, integrand_func, wavelengths):
+        """
+        Integrate the adjoint sensitivity over a rectangle region.
+        This method was missing from your implementation.
+        """
+        try:
+            gradient = 0.0
+            dV = self.dx * self.dy * self.dz
+            
+            # Simple spatial integration over rectangle
+            x_centers = np.linspace(rect['x_min'], rect['x_max'], 5)  # 5 sample points
+            y_centers = np.linspace(rect['y_min'], rect['y_max'], 3)  # 3 sample points
+            z_centers = self.z
+            
+            for wl in wavelengths:
+                for x_pos in x_centers:
+                    for y_pos in y_centers:
+                        for z_pos in z_centers:
+                            integrand_value = integrand_func(x_pos, y_pos, z_pos, wl)
+                            gradient += integrand_value * dV
+            
+            return gradient
+            
+        except Exception as e:
+            print(f"Error in rectangle integration: {e}")
             return 0.0
+
+ 
 
     def _apply_constraint_projection(self, gradients):
         """
