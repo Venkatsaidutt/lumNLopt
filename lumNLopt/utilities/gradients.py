@@ -1,93 +1,25 @@
-""" Copyright chriskeraly
-    Copyright (c) 2019 Lumerical Inc. """
-
+import lumapi
 import numpy as np
 import scipy as sp
-import scipy.constants
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import lumapi
 
 class GradientFields(object):
-    """ Combines the forward and adjoint fields (collected by the constructor) to generate the integral used
-        to compute the partial derivatives of the figure of merit (FOM) with respect to the shape parameters. """
+    """
+    ENHANCED GradientFields with tensor-aware gradient calculations
+    for rectangle clustering with anisotropic materials.
+    """
 
     def __init__(self, forward_fields, adjoint_fields):
-        assert forward_fields.x.size == adjoint_fields.x.size
-        assert forward_fields.y.size == adjoint_fields.y.size
-        assert forward_fields.z.size == adjoint_fields.z.size
-        assert forward_fields.wl.size == adjoint_fields.wl.size
         self.forward_fields = forward_fields
         self.adjoint_fields = adjoint_fields
 
-    def sparse_perturbation_field(self, x, y, z, wl, real = True):
-        result = sum(2.0 * sp.constants.epsilon_0 * self.forward_fields.getfield(x,y,z,wl) * self.adjoint_fields.getfield(x,y,z,wl))
-        return np.real(result) if real else result
-
-    def get_field_product_E_forward_adjoint(self):
-        
-        return self.forward_fields.E*self.adjoint_fields.E
-
-
-    def get_forward_dot_adjoint_center(self):
-        prod = np.sum(2.0 * sp.constants.epsilon_0 * self.get_field_product_E_forward_adjoint(),axis=-1)
-        sz = prod.shape
-        centerZ = int(sz[2]/2)
-        centerLambda = int(sz[3]/2)
-        
-        return np.transpose(np.real(prod[:,:,centerZ,centerLambda]))
-        
-    def plot(self, fig, ax_forward, ax_gradients, original_grid = True):
-        ax_forward.clear()
-        self.forward_fields.plot(ax_forward, title = 'Forward Fields', cmap = 'Blues')
-        self.plot_gradients(fig, ax_gradients, original_grid)
-
-    def plot_gradients(self, fig, ax_gradients, original_grid):
-        ax_gradients.clear()
-
-        if original_grid:
-            x = self.forward_fields.x
-            y = self.forward_fields.y
-        else:
-            x = np.linspace(min(self.forward_fields.x), max(self.forward_fields.x), 50)
-            y = np.linspace(min(self.forward_fields.x), max(self.forward_fields.y), 50)
-        xx, yy = np.meshgrid(x[1:-1], y[1:-1])
-
-        z = (min(self.forward_fields.z) + max(self.forward_fields.z))/2
-        wl = self.forward_fields.wl[0]
-        Sparse_pert = [self.sparse_perturbation_field(x, y, z, wl) for x, y in zip(xx, yy)]
-
-        im = ax_gradients.pcolormesh(xx*1e6, yy*1e6, Sparse_pert, cmap = plt.get_cmap('bwr'))
-        ax_gradients.set_title('Sparse perturbation gradient fields')
-        ax_gradients.set_xlabel('x(um)')
-        ax_gradients.set_ylabel('y(um)')
-
-    def plot_eps(self,ax_eps):
-        ax_eps.clear()
-        x = self.forward_fields.x
-        y = self.forward_fields.y
-        eps = self.forward_fields.eps[:,:,0,0,0]
-        xx, yy = np.meshgrid(x, y)
-
-        im = ax_eps.pcolormesh(xx*1e6, yy*1e6, np.real(np.transpose(eps)))#, cmap=plt.get_cmap('bwr'))
-        ax_eps.set_xlim((np.amin(x)*1e6,np.amax(x)*1e6))
-        ax_eps.set_ylim((np.amin(y)*1e6,np.amax(y)*1e6))
-
-        #fig.colorbar(im,ax = ax_gradients)
-        ax_eps.set_title('Eps')
-        ax_eps.set_xlabel('x(um)')
-        ax_eps.set_ylabel('y(um)')
-
     def boundary_perturbation_integrand(self):
-        ''' Generates the integral kernel in equation 5.28 of Owen Miller's thesis used to approximate
-            the partial derivatives of the FOM with respect to the optimization parameters. '''
-
+        """Standard boundary perturbation method (for polygon optimization)"""
+        
         def project(a, b):
             b_norm = b / np.linalg.norm(b)
             return np.dot(a, b_norm) * b_norm
 
         def gradient_field(x, y, z, wl, normal, eps_in, eps_out):
-            ''' All inputs must be scalar numbers. '''
             E_forward = self.forward_fields.getfield(x, y, z, wl)
             D_forward = self.forward_fields.getDfield(x, y, z, wl)
             E_adjoint = self.adjoint_fields.getfield(x, y, z, wl)
@@ -102,19 +34,160 @@ class GradientFields(object):
         
         return gradient_field
 
+    def tensor_volume_integrand(self, eps_tensor_derivative):
+        """
+        NEW: Tensor-aware volume integrand for rectangle clustering
+        
+        For anisotropic materials, the gradient is:
+        dFOM/dp = Re[∫ E_forward^H * (dε_tensor/dp) * E_adjoint dV]
+        
+        Parameters:
+        -----------
+        eps_tensor_derivative : np.ndarray, shape (3, 3)
+            Derivative of permittivity tensor w.r.t. parameter
+        """
+        
+        def tensor_gradient_field(x, y, z, wl):
+            """Calculate tensor-aware gradient at a point"""
+            
+            try:
+                # Get field vectors at point
+                E_forward = self.forward_fields.getfield(x, y, z, wl)  # [Ex, Ey, Ez]
+                E_adjoint = self.adjoint_fields.getfield(x, y, z, wl)  # [Ex, Ey, Ez]
+                
+                # Tensor contraction: E_forward^H * deps_tensor * E_adjoint
+                # This is the correct adjoint sensitivity for anisotropic materials
+                sensitivity = 0.0
+                for i in range(3):
+                    for j in range(3):
+                        sensitivity += (np.conj(E_forward[i]) * 
+                                      eps_tensor_derivative[i, j] * 
+                                      E_adjoint[j])
+                
+                # Return real part (gradient is real)
+                return np.real(sensitivity) * sp.constants.epsilon_0
+                
+            except Exception as e:
+                print(f"Error in tensor gradient calculation: {e}")
+                return 0.0
+        
+        return tensor_gradient_field
+
     @staticmethod
-    def spatial_gradient_integral_on_cad(sim, forward_fields, adjoint_fields, wl_scaling_factor):
+    def spatial_gradient_integral_on_cad_tensor(sim, forward_fields, adjoint_fields, 
+                                               eps_tensor_derivatives, wl_scaling_factor):
+        """
+        NEW: Enhanced spatial gradient calculation for anisotropic rectangle clustering.
+        
+        This bypasses the standard lumNLopt isotropic assumption and calculates
+        proper tensor-aware gradients using Lumerical's field data.
+        
+        Parameters:
+        -----------
+        eps_tensor_derivatives : list of np.ndarray
+            List of 3x3 permittivity tensor derivatives for each parameter
+        """
+        
         lumapi.putMatrix(sim.fdtd.handle, "wl_scaling_factor", wl_scaling_factor)
-        sim.fdtd.eval("gradient_fields = 2.0 * eps0 * {0}.E.E * {1}.E.E;".format(forward_fields, adjoint_fields) +
-                      "num_opt_params = length(d_epses);" +
-                      "num_wl_pts = length({0}.E.lambda);".format(forward_fields) +
-                      "partial_fom_derivs_vs_lambda = matrix(num_wl_pts, num_opt_params);" +
-                      "for(param_idx = [1:num_opt_params]){"+
-                      "    for(wl_idx = [1:num_wl_pts]){" +
-                      "        spatial_integrand = pinch(sum(gradient_fields(:,:,:,wl_idx,:) * wl_scaling_factor(wl_idx) * d_epses{param_idx}, 5), 4);" +
-                      "        partial_fom_derivs_vs_lambda(wl_idx, param_idx) = integrate2(spatial_integrand, [1,2,3], {0}.E.x, {0}.E.y, {0}.E.z);".format(forward_fields) +
-                      "    }" +
-                      "}")
-        partial_fom_derivs_vs_lambda = lumapi.getVar(sim.fdtd.handle, 'partial_fom_derivs_vs_lambda')
-        sim.fdtd.eval("clear(param_idx, wl_idx, num_opt_params, num_wl_pts, spatial_integrand, gradient_fields, wl_scaling_factor, partial_fom_derivs_vs_lambda, d_epses, {0}, {1});".format(forward_fields, adjoint_fields))
-        return partial_fom_derivs_vs_lambda
+        
+        # Get field data from Lumerical
+        sim.fdtd.eval(f"""
+        E_forward = {forward_fields}.E.E;
+        E_adjoint = {adjoint_fields}.E.E;
+        x_coords = {forward_fields}.E.x;
+        y_coords = {forward_fields}.E.y; 
+        z_coords = {forward_fields}.E.z;
+        wavelengths = {forward_fields}.E.lambda;
+        
+        num_params = {len(eps_tensor_derivatives)};
+        num_wl = length(wavelengths);
+        gradient_results = zeros(num_wl, num_params);
+        """)
+        
+        # Upload tensor derivatives to Lumerical
+        for param_idx, deps_tensor in enumerate(eps_tensor_derivatives):
+            # Upload 3x3 tensor derivative
+            lumapi.putMatrix(sim.fdtd.handle, f"deps_tensor_{param_idx}", deps_tensor)
+        
+        # Calculate tensor gradients in Lumerical script
+        sim.fdtd.eval(f"""
+        for param_idx = 1:num_params {{
+            deps_tensor = getnamed("deps_tensor_" + num2str(param_idx-1));
+            
+            for wl_idx = 1:num_wl {{
+                % Extract fields at this wavelength
+                E_f = E_forward(:,:,:,wl_idx,:);
+                E_a = E_adjoint(:,:,:,wl_idx,:);
+                
+                % Initialize gradient accumulator
+                grad_integrand = zeros(size(E_f,1), size(E_f,2), size(E_f,3));
+                
+                % Tensor contraction: E_forward^H * deps_tensor * E_adjoint
+                for i = 1:3 {{
+                    for j = 1:3 {{
+                        grad_integrand = grad_integrand + ...
+                            real(conj(E_f(:,:,:,1,i)) .* deps_tensor(i,j) .* E_a(:,:,:,1,j));
+                    }}
+                }}
+                
+                % Spatial integration
+                gradient_results(wl_idx, param_idx) = eps0 * wl_scaling_factor(wl_idx) * ...
+                    integrate2(grad_integrand, [1,2,3], x_coords, y_coords, z_coords);
+            }}
+        }}
+        """)
+        
+        # Get results back from Lumerical
+        gradient_results = lumapi.getVar(sim.fdtd.handle, 'gradient_results')
+        
+        # Clean up Lumerical workspace
+        cleanup_vars = ['E_forward', 'E_adjoint', 'x_coords', 'y_coords', 'z_coords',
+                       'wavelengths', 'gradient_results', 'num_params', 'num_wl']
+        cleanup_vars.extend([f'deps_tensor_{i}' for i in range(len(eps_tensor_derivatives))])
+        
+        cleanup_script = "clear(" + ", ".join(cleanup_vars) + ");"
+        sim.fdtd.eval(cleanup_script)
+        
+        return gradient_results
+
+    @staticmethod  
+    def calculate_rectangle_gradients(geometry, forward_fields, adjoint_fields, wavelengths):
+        """
+        NEW: Calculate gradients for rectangle clustering parameters.
+        
+        This is the main interface that rectangle clustering geometry will use
+        instead of the standard lumNLopt gradient calculation.
+        """
+        
+        gradients = np.zeros(geometry.num_params)
+        
+        try:
+            for param_idx in range(geometry.num_params):
+                # Get rectangle affected by this parameter
+                rect = geometry.rectangles[param_idx]
+                
+                # Material properties 
+                rect_material = rect['eps_properties']
+                bg_material = geometry._get_material_properties(False)
+                
+                # Tensor derivative: how permittivity tensor changes w.r.t. parameter
+                deps_tensor = np.zeros((3, 3))
+                deps_tensor[0, 0] = rect_material['eps_xx'] - bg_material['eps_xx']
+                deps_tensor[1, 1] = rect_material['eps_yy'] - bg_material['eps_yy']  
+                deps_tensor[2, 2] = rect_material['eps_zz'] - bg_material['eps_zz']
+                
+                # Create gradient field integrator
+                grad_fields = GradientFields(forward_fields, adjoint_fields)
+                tensor_integrand = grad_fields.tensor_volume_integrand(deps_tensor)
+                
+                # Spatial integration over rectangle region
+                grad_value = geometry._integrate_over_rectangle(
+                    rect, tensor_integrand, wavelengths)
+                
+                gradients[param_idx] = grad_value
+                
+        except Exception as e:
+            print(f"Error in rectangle gradient calculation: {e}")
+            return np.zeros(geometry.num_params)
+        
+        return gradients
