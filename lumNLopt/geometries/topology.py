@@ -294,70 +294,33 @@ class RectangleClusteringTopology(Geometry):
             except Exception as e:
                 print(f"Error adding/updating rectangle {rect_name}: {e}")
                 raise
-
+                
     def _set_material_properties(self, fdtd, object_name, eps_props):
-        """
-        Set material properties for Lumerical object.
-        FIXED: Corrected anisotropic material syntax for Lumerical FDTD.
-        """
         
+        
+    """Use the SAME syntax as in materials.py - the confirmed approach"""
+    
         try:
+            fdtd.setnamed(object_name, 'material', '<Object defined dielectric>')
+            
+        
             if eps_props['is_anisotropic']:
-                # CORRECTED: Proper Lumerical anisotropic material syntax
-                fdtd.setnamed(object_name, 'material', '<Object defined dielectric>')
                 
-                # Method 1: Try modern Lumerical anisotropic syntax
-                try:
-                    fdtd.setnamed(object_name, 'material type', 'Anisotropic')
-                    
-                    # Set diagonal permittivity components
-                    fdtd.setnamed(object_name, 'relative permittivity', 1.0)  # Base value
-                    fdtd.setnamed(object_name, 'relative permittivity, 11', eps_props['eps_xx'])
-                    fdtd.setnamed(object_name, 'relative permittivity, 22', eps_props['eps_yy'])
-                    fdtd.setnamed(object_name, 'relative permittivity, 33', eps_props['eps_zz'])
-                    
-                    # Set off-diagonal terms if needed
-                    if abs(eps_props['eps_xy']) > 1e-6:
-                        fdtd.setnamed(object_name, 'relative permittivity, 12', eps_props['eps_xy'])
-                    if abs(eps_props['eps_xz']) > 1e-6:
-                        fdtd.setnamed(object_name, 'relative permittivity, 13', eps_props['eps_xz'])
-                    if abs(eps_props['eps_yz']) > 1e-6:
-                        fdtd.setnamed(object_name, 'relative permittivity, 23', eps_props['eps_yz'])
-                        
-                    print(f"Set anisotropic material for {object_name}: eps_xx={eps_props['eps_xx']:.2f}")
-                    
-                except Exception as e1:
-                    print(f"Modern anisotropic syntax failed: {e1}")
-                    
-                    # Method 2: Fallback to alternative syntax
-                    try:
-                        # Alternative property names that might work
-                        fdtd.setnamed(object_name, 'permittivity 11', eps_props['eps_xx'])
-                        fdtd.setnamed(object_name, 'permittivity 22', eps_props['eps_yy'])
-                        fdtd.setnamed(object_name, 'permittivity 33', eps_props['eps_zz'])
-                        print(f"Set anisotropic material (fallback) for {object_name}")
-                        
-                    except Exception as e2:
-                        print(f"Fallback anisotropic syntax also failed: {e2}")
-                        print("WARNING: Falling back to isotropic approximation")
-                        
-                        # Method 3: Final fallback - use average as isotropic
-                        avg_eps = (eps_props['eps_xx'] + eps_props['eps_yy'] + eps_props['eps_zz']) / 3.0
-                        n_avg = np.sqrt(avg_eps)
-                        fdtd.setnamed(object_name, 'material', '<Object defined dielectric>')
-                        fdtd.setnamed(object_name, 'index', float(n_avg))
-                        print(f"Using isotropic approximation: n={n_avg:.3f}")
                 
-            else:
-                # ISOTROPIC MATERIAL - Standard approach
-                fdtd.setnamed(object_name, 'material', '<Object defined dielectric>')
-                n_value = np.sqrt(eps_props['eps_xx'])
-                fdtd.setnamed(object_name, 'index', float(n_value))
+                fdtd.setnamed(object_name, 'anisotropy', 1)
+                fdtd.setnamed(object_name, 'index x', np.sqrt(eps_props['eps_xx']))
+                fdtd.setnamed(object_name, 'index y', np.sqrt(eps_props['eps_yy']))
+                fdtd.setnamed(object_name, 'index z', np.sqrt(eps_props['eps_zz']))
                 
-        except Exception as e:
-            print(f"Error setting material properties for {object_name}: {e}")
-            print(f"Material properties: {eps_props}")
-            raise
+        else:
+            # Isotropic material
+            n_value = np.sqrt(eps_props['eps_xx'])
+            fdtd.setnamed(object_name, 'index', float(n_value))
+            
+            
+    except Exception as e:
+        print(f"Error setting material properties for {object_name}: {e}")
+        raise
 
     def calculate_gradients_manual(self, forward_fields, adjoint_fields, wavelengths):
         """
