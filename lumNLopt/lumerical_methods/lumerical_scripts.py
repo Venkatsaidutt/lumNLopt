@@ -102,3 +102,91 @@ def get_eps_from_sim(fdtd, monitor_name = 'opt_fields', unfold_symmetry = True):
 
     fields_eps = np.stack((fields_eps_x, fields_eps_y, fields_eps_z), axis = -1)
     return fields_eps, index_monitor_x,index_monitor_y,index_monitor_z, index_monitor_lambda
+
+
+def setup_anisotropic_rectangle(fdtd, rect_name, rect_params, material_props):
+    """
+    NEW: Setup anisotropic rectangle using correct Lumerical syntax
+    
+    Parameters:
+    -----------
+    rect_params : dict
+        Rectangle geometry: {'x_min', 'x_max', 'y_min', 'y_max', 'z_center', 'z_span'}
+    material_props : dict  
+        Material properties: {'eps_xx', 'eps_yy', 'eps_zz', 'is_anisotropic'}
+    """
+    
+    try:
+        # Set geometry
+        fdtd.setnamed(rect_name, 'x min', rect_params['x_min'])
+        fdtd.setnamed(rect_name, 'x max', rect_params['x_max'])
+        fdtd.setnamed(rect_name, 'y min', rect_params['y_min'])
+        fdtd.setnamed(rect_name, 'y max', rect_params['y_max'])
+        fdtd.setnamed(rect_name, 'z', rect_params['z_center'])
+        fdtd.setnamed(rect_name, 'z span', rect_params['z_span'])
+        
+        # Set material - CORRECTED SYNTAX
+        fdtd.setnamed(rect_name, 'material', '<Object defined dielectric>')
+        
+        if material_props['is_anisotropic']:
+            # Enable diagonal anisotropy
+            fdtd.setnamed(rect_name, 'anisotropy', 1)
+            
+            # Set refractive index components
+            fdtd.setnamed(rect_name, 'index x', np.sqrt(material_props['eps_xx']))
+            fdtd.setnamed(rect_name, 'index y', np.sqrt(material_props['eps_yy']))
+            fdtd.setnamed(rect_name, 'index z', np.sqrt(material_props['eps_zz']))
+            
+        else:
+            # Isotropic material
+            avg_eps = material_props['eps_xx']  # All components same for isotropic
+            fdtd.setnamed(rect_name, 'index', np.sqrt(avg_eps))
+            
+        return True
+        
+    except Exception as e:
+        print(f"Error setting up anisotropic rectangle {rect_name}: {e}")
+        return False
+
+def get_anisotropic_fields(fdtd, monitor_name, get_tensor_eps=True):
+    """
+    NEW: Enhanced field extraction with anisotropic material support
+    """
+    
+    # Standard field extraction
+    fields = get_fields(fdtd, monitor_name, 'field_data', 
+                       get_eps=get_tensor_eps, get_D=True, get_H=False, 
+                       nointerpolation=False)
+    
+    if get_tensor_eps:
+        # Extract tensor permittivity information
+        fdtd.eval(f"""
+        field_data_tensor = struct;
+        field_data_tensor.eps_tensor = struct;
+        
+        % Get material information from index monitor
+        index_data = getresult('{monitor_name}_index', 'index');
+        
+        % Extract tensor components (Lumerical stores as separate index components)
+        if isfield(index_data, 'index_x') &&
+           isfield(index_data, 'index_y') &&  
+           isfield(index_data, 'index_z')
+            field_data_tensor.eps_tensor.xx = index_data.index_x^2;
+            field_data_tensor.eps_tensor.yy = index_data.index_y^2;
+            field_data_tensor.eps_tensor.zz = index_data.index_z^2;
+        else
+            % Fallback: assume isotropic
+            index_avg = (index_data.index_x + index_data.index_y + index_data.index_z) / 3;
+            field_data_tensor.eps_tensor.xx = index_avg^2;
+            field_data_tensor.eps_tensor.yy = index_avg^2;
+            field_data_tensor.eps_tensor.zz = index_avg^2;
+        end
+        """)
+        
+        # Get tensor data
+        tensor_data = lumapi.getVar(fdtd.handle, 'field_data_tensor')
+        fields.eps_tensor = tensor_data['eps_tensor'] if tensor_data else None
+        
+        fdtd.eval("clear(field_data_tensor, index_data);")
+    
+    return fields
