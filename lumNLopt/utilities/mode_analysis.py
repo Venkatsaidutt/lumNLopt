@@ -4,7 +4,7 @@ Mode analysis utilities for adiabatic coupling optimization
 
 import numpy as np
 import scipy as sp
-
+from lumNLopt.lumerical_methods.lumerical_scripts import get_mode_overlap_between_monitors
 class ModeAnalyzer:
     """Utility class for mode overlap and evolution analysis"""
     
