@@ -73,6 +73,113 @@ class GradientFields(object):
         
         return tensor_gradient_field
 
+    def mode_overlap_integrand(self, mode1_fields, mode2_fields):
+        """
+        Create integrand for mode overlap gradient calculation.
+        
+        For adiabatic coupling optimization, we need gradients of mode overlaps
+        between adjacent slices w.r.t. geometry parameters.
+        
+        Parameters:
+        -----------
+        mode1_fields : field object
+            Mode fields from first monitor
+        mode2_fields : field object
+            Mode fields from second monitor
+            
+        Returns:
+        --------
+        overlap_gradient_field : function
+            Function that calculates overlap gradient at a point
+        """
+        
+        def overlap_gradient_field(x, y, z, wl):
+            """Calculate mode overlap gradient contribution at a point"""
+            
+            try:
+                # Get mode fields at this spatial point
+                E1 = mode1_fields.getfield(x, y, z, wl)  # [Ex, Ey, Ez]
+                E2 = mode2_fields.getfield(x, y, z, wl)  # [Ex, Ey, Ez]
+                
+                # Mode overlap integrand: ∫ E1*(r) · E2(r) dr
+                # The gradient contribution is the local field overlap
+                overlap_contrib = np.sum(np.conj(E1) * E2)
+                
+                # Return real part (overlap gradient is real)
+                return np.real(overlap_contrib) * sp.constants.epsilon_0
+                
+            except Exception as e:
+                print(f"Error in mode overlap gradient calculation: {e}")
+                return 0.0
+        
+        return overlap_gradient_field
+
+    def adiabatic_evolution_integrand(self, slice_fields_list, target_overlaps):
+        """
+        Create integrand for adiabatic evolution quality gradient.
+        
+        This handles gradients of the mode evolution quality metric w.r.t.
+        geometry parameters for the entire adiabatic coupler.
+        
+        Parameters:
+        -----------
+        slice_fields_list : list
+            List of field objects for each slice
+        target_overlaps : np.ndarray
+            Target overlap values from arithmetic progression
+            
+        Returns:
+        --------
+        evolution_gradient_field : function
+            Function that calculates evolution gradient at a point
+        """
+        
+        def evolution_gradient_field(x, y, z, wl, slice_index):
+            """Calculate adiabatic evolution gradient contribution"""
+            
+            try:
+                gradient_contrib = 0.0
+                
+                # Consider overlaps with adjacent slices
+                if slice_index > 0:
+                    # Overlap with previous slice
+                    E_current = slice_fields_list[slice_index].getfield(x, y, z, wl)
+                    E_prev = slice_fields_list[slice_index-1].getfield(x, y, z, wl)
+                    
+                    overlap_prev = np.sum(np.conj(E_prev) * E_current)
+                    target_prev = target_overlaps[slice_index-1]
+                    
+                    # Gradient weight based on deviation from target
+                    weight_prev = 2.0 * (np.real(overlap_prev) - target_prev)
+                    gradient_contrib += weight_prev * np.real(overlap_prev)
+                
+                if slice_index < len(slice_fields_list) - 1:
+                    # Overlap with next slice
+                    E_current = slice_fields_list[slice_index].getfield(x, y, z, wl)
+                    E_next = slice_fields_list[slice_index+1].getfield(x, y, z, wl)
+                    
+                    overlap_next = np.sum(np.conj(E_current) * E_next)
+                    target_next = target_overlaps[slice_index]
+                    
+                    # Gradient weight based on deviation from target
+                    weight_next = 2.0 * (np.real(overlap_next) - target_next)
+                    gradient_contrib += weight_next * np.real(overlap_next)
+                
+                return gradient_contrib * sp.constants.epsilon_0
+                
+            except Exception as e:
+                print(f"Error in adiabatic evolution gradient: {e}")
+                return 0.0
+        
+        return evolution_gradient_field
+
+
+
+
+
+
+
+        
     @staticmethod
     def spatial_gradient_integral_on_cad_tensor(sim, forward_fields, adjoint_fields, 
                                                eps_tensor_derivatives, wl_scaling_factor):
@@ -191,3 +298,85 @@ class GradientFields(object):
             return np.zeros(geometry.num_params)
         
         return gradients
+
+@staticmethod
+    def calculate_adiabatic_coupling_gradients(geometry, forward_fields, adjoint_fields, 
+                                               slice_fields_list, target_overlaps, wavelengths):
+        """
+        Calculate gradients for adiabatic coupling optimization.
+        
+        This combines:
+        1. Standard power transfer gradients
+        2. Mode overlap gradients between adjacent slices
+        3. Adiabatic evolution quality gradients
+        
+        Parameters:
+        -----------
+        geometry : RectangleClusteringTopology
+            Geometry object with parameter information
+        forward_fields : field object
+            Forward simulation fields
+        adjoint_fields : field object
+            Adjoint simulation fields
+        slice_fields_list : list
+            List of field objects for each slice
+        target_overlaps : np.ndarray
+            Target overlap progression from arithmetic sequence
+        wavelengths : np.ndarray
+            Wavelength array
+            
+        Returns:
+        --------
+        gradients : np.ndarray
+            Combined gradients for all geometry parameters
+        """
+        
+        gradients = np.zeros(geometry.num_params)
+        
+        try:
+            # 1. Standard power transfer gradients (main transmission)
+            power_gradients = GradientFields.calculate_rectangle_gradients(
+                geometry, forward_fields, adjoint_fields, wavelengths)
+            
+            # 2. Mode overlap gradients (adiabatic evolution)
+            overlap_gradients = np.zeros(geometry.num_params)
+            
+            if len(slice_fields_list) > 1:
+                grad_fields = GradientFields(forward_fields, adjoint_fields)
+                
+                for i in range(len(slice_fields_list) - 1):
+                    # Mode overlap between adjacent slices
+                    overlap_integrand = grad_fields.mode_overlap_integrand(
+                        slice_fields_list[i], slice_fields_list[i+1])
+                    
+                    # Target overlap for this slice pair
+                    target_overlap = target_overlaps[i] if i < len(target_overlaps) else 0.8
+                    
+                    # Calculate overlap gradient for each parameter
+                    for param_idx in range(geometry.num_params):
+                        rect = geometry.rectangles[param_idx]
+                        
+                        # Spatial integration over rectangle
+                        overlap_grad = geometry._integrate_over_rectangle(
+                            rect, overlap_integrand, wavelengths)
+                        
+                        # Weight by deviation from target overlap
+                        weight = 2.0 * (target_overlap - 0.8)  # Simplified weighting
+                        overlap_gradients[param_idx] += weight * overlap_grad
+            
+            # 3. Combine gradients with appropriate weights
+            transmission_weight = 2.0  # Primary objective
+            evolution_weight = 1.5     # Secondary objective
+            
+            gradients = (transmission_weight * power_gradients + 
+                        evolution_weight * overlap_gradients)
+            
+            # Apply constraint projection
+            if hasattr(geometry, '_apply_constraint_projection'):
+                gradients = geometry._apply_constraint_projection(gradients)
+            
+            return gradients
+            
+        except Exception as e:
+            print(f"Error in adiabatic coupling gradient calculation: {e}")
+            return np.zeros(geometry.num_params)
