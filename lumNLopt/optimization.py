@@ -8,15 +8,14 @@ import copy
 import numpy as np
 import matplotlib.pyplot as plt
 
-from lumopt.utilities.base_script import BaseScript
-from lumopt.utilities.wavelengths import Wavelengths
-from lumopt.utilities.simulation import Simulation
-from lumopt.utilities.fields import FieldsNoInterp
-from lumopt.utilities.gradients import GradientFields
-from lumopt.figures_of_merit.adiabatic_coupling import AdiabaticCouplingFOM
-from lumopt.figures_of_merit.modematch import ModeMatch
-from lumopt.utilities.plotter import Plotter
-from lumopt.lumerical_methods.lumerical_scripts import get_fields
+from lumNLopt.utilities.base_script import BaseScript
+from lumNLopt.utilities.wavelengths import Wavelengths
+from lumNLopt.utilities.simulation import Simulation
+from lumNLopt.utilities.fields import FieldsNoInterp
+from lumNLopt.utilities.gradients import GradientFields
+from lumNLopt.figures_of_merit.adiabatic_coupling import AdiabaticCouplingFOM  # CORRECTfrom lumopt.figures_of_merit.modematch import ModeMatch
+from lumNLopt.utilities.plotter import Plotter
+from lumNLopt.lumerical_methods.lumerical_scripts import get_fields
 
 class SuperOptimization(object):
     """
