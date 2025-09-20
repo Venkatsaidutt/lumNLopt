@@ -15,7 +15,10 @@ import numpy as np
 import scipy as sp
 import scipy.constants
 import lumapi
-from lumNLopt.utilities.wavelengths import Wavelengths  # CORRECT
+from lumNLopt.utilities.wavelengths import Wavelengths 
+# CORRECT
+from lumNLopt.lumerical_methods.lumerical_scripts import get_mode_overlap_between_monitors,get_fundamental_mode_power_fraction
+
 class AdiabaticCouplingFOM(object):
     """
     Figure of merit for adiabatic edge coupler optimization.
