@@ -15,8 +15,7 @@ import numpy as np
 import scipy as sp
 import scipy.constants
 import lumapi
-from lumopt.utilities.wavelengths import Wavelengths
-
+from lumNLopt.utilities.wavelengths import Wavelengths  # CORRECT
 class AdiabaticCouplingFOM(object):
     """
     Figure of merit for adiabatic edge coupler optimization.
