@@ -13,6 +13,7 @@ from lumopt.utilities.wavelengths import Wavelengths
 from lumopt.utilities.simulation import Simulation
 from lumopt.utilities.fields import FieldsNoInterp
 from lumopt.utilities.gradients import GradientFields
+from lumopt.figures_of_merit.adiabatic_coupling import AdiabaticCouplingFOM
 from lumopt.figures_of_merit.modematch import ModeMatch
 from lumopt.utilities.plotter import Plotter
 from lumopt.lumerical_methods.lumerical_scripts import get_fields
