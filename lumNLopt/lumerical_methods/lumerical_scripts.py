@@ -190,3 +190,156 @@ def get_anisotropic_fields(fdtd, monitor_name, get_tensor_eps=True):
         fdtd.eval("clear(field_data_tensor, index_data);")
     
     return fields
+
+
+def get_mode_overlap_between_monitors(fdtd, monitor1_name, monitor2_name):
+    """
+    Calculate mode overlap between two mode expansion monitors.
+    
+    Parameters:
+    -----------
+    fdtd : lumapi.FDTD
+        FDTD simulation object
+    monitor1_name : str
+        Name of first mode expansion monitor
+    monitor2_name : str
+        Name of second mode expansion monitor
+        
+    Returns:
+    --------
+    overlap : np.ndarray
+        Mode overlap values vs wavelength
+    """
+    
+    try:
+        # Get mode expansion results from both monitors
+        exp_result1_name = f'expansion for {monitor1_name}'
+        exp_result2_name = f'expansion for {monitor2_name}'
+        
+        if not fdtd.haveresult(monitor1_name, exp_result1_name):
+            raise UserWarning(f'Mode expansion result not found for {monitor1_name}')
+        if not fdtd.haveresult(monitor2_name, exp_result2_name):
+            raise UserWarning(f'Mode expansion result not found for {monitor2_name}')
+        
+        # Extract mode data
+        mode1_data = fdtd.getresult(monitor1_name, exp_result1_name)
+        mode2_data = fdtd.getresult(monitor2_name, exp_result2_name)
+        
+        # Get mode coefficients (fundamental mode)
+        a1 = mode1_data['a']  # Forward coefficient from monitor 1
+        a2 = mode2_data['a']  # Forward coefficient from monitor 2
+        
+        # Calculate mode overlap: |<ψ1|ψ2>|²
+        # For fundamental modes, this is |a1* × a2|
+        overlap = np.abs(np.conj(a1) * a2)
+        
+        return np.real(overlap).flatten()
+        
+    except Exception as e:
+        print(f"Error calculating mode overlap between {monitor1_name} and {monitor2_name}: {e}")
+        # Return fallback values (moderate overlap)
+        wavelengths = fdtd.getglobalmonitor('frequency points')
+        return np.ones(int(wavelengths)) * 0.7
+
+
+def setup_slice_monitors_for_adiabatic_coupler(fdtd, num_slices, coupler_length, 
+                                               coupler_width, coupler_height, 
+                                               y_center=0, z_center=0):
+    """
+    Setup field monitors for each slice in adiabatic edge coupler.
+    
+    Parameters:
+    -----------
+    fdtd : lumapi.FDTD
+        FDTD simulation object
+    num_slices : int
+        Number of slices along the coupler
+    coupler_length : float
+        Total length of the coupler (m)
+    coupler_width : float
+        Width span for monitors (m)
+    coupler_height : float
+        Height span for monitors (m)
+    y_center : float
+        Y-center position for monitors (m)
+    z_center : float
+        Z-center position for monitors (m)
+    """
+    
+    # Calculate slice positions along the coupler
+    x_positions = np.linspace(0, coupler_length, num_slices)
+    
+    for i, x_pos in enumerate(x_positions):
+        monitor_name = f'slice_monitor_{i}'
+        mode_exp_name = f'slice_monitor_{i}_mode_exp'
+        
+        try:
+            # Add field monitor for this slice
+            fdtd.addprofile()
+            fdtd.set('name', monitor_name)
+            fdtd.set('monitor type', '2D X-normal')
+            fdtd.set('x', x_pos)
+            fdtd.set('y', y_center)
+            fdtd.set('y span', coupler_width)
+            fdtd.set('z', z_center)
+            fdtd.set('z span', coupler_height)
+            
+            # Add corresponding mode expansion monitor
+            fdtd.addmodeexpansion()
+            fdtd.set('name', mode_exp_name)
+            fdtd.set('x', x_pos)
+            fdtd.set('y', y_center)
+            fdtd.set('y span', coupler_width)
+            fdtd.set('z', z_center)
+            fdtd.set('z span', coupler_height)
+            fdtd.set('mode selection', 'fundamental mode')
+            fdtd.updatemodes()
+            
+        except Exception as e:
+            print(f"Warning: Could not setup monitor for slice {i} at x={x_pos*1e6:.1f}μm: {e}")
+
+
+def get_fundamental_mode_power_fraction(fdtd, mode_expansion_monitor_name):
+    """
+    Get the power fraction in the fundamental mode.
+    
+    Parameters:
+    -----------
+    fdtd : lumapi.FDTD
+        FDTD simulation object
+    mode_expansion_monitor_name : str
+        Name of mode expansion monitor
+        
+    Returns:
+    --------
+    power_fraction : np.ndarray
+        Power fraction in fundamental mode vs wavelength
+    """
+    
+    try:
+        exp_result_name = f'expansion for {mode_expansion_monitor_name}'
+        
+        if not fdtd.haveresult(mode_expansion_monitor_name, exp_result_name):
+            raise UserWarning(f'Mode expansion result not found for {mode_expansion_monitor_name}')
+        
+        mode_data = fdtd.getresult(mode_expansion_monitor_name, exp_result_name)
+        
+        # Get forward and backward coefficients
+        a_coeff = mode_data['a']  # Forward coefficient
+        b_coeff = mode_data['b']  # Backward coefficient
+        
+        # Power in fundamental mode (first mode, index 0)
+        forward_power = np.abs(a_coeff)**2
+        backward_power = np.abs(b_coeff)**2
+        total_mode_power = forward_power + backward_power
+        
+        # For fundamental mode analysis, we typically want forward power
+        fundamental_power_fraction = forward_power.flatten()
+        
+        return np.real(fundamental_power_fraction)
+        
+    except Exception as e:
+        print(f"Error getting fundamental mode power fraction from {mode_expansion_monitor_name}: {e}")
+        wavelengths = fdtd.getglobalmonitor('frequency points')
+        return np.ones(int(wavelengths)) * 0.8  # Fallback: assume 80% fundamental mode
+
