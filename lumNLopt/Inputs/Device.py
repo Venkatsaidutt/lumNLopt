@@ -36,6 +36,7 @@ class DeviceConfig:
         self.setup_simulation_domain()
         self.setup_mesh_settings()
         self.setup_monitor_configuration()
+        self.setup_source_configuration()
         self.setup_output_settings()
         self.setup_monitor_names()
         
@@ -699,6 +700,82 @@ class DeviceConfig:
             }
         }
     
+    def setup_source_configuration(self):
+        """Define comprehensive source configuration for FDTD simulation"""
+        
+        self.source_config = {
+            # ==== SOURCE TYPE AND BASIC SETTINGS ====
+            'source_type': 'mode',              # 'mode', 'plane_wave', 'gaussian', 'dipole'
+            'name': 'source',                   # Source object name
+            'enabled': True,                    # Enable source by default
+            
+            # ==== SOURCE POSITION AND ORIENTATION ====
+            'geometry': {
+                'position': {
+                    'x': -7.0e-6,               # Position in input waveguide
+                    'y': 0.0,                   # Centered
+                    'z': 110e-9                 # Center of silicon layer
+                },
+                'span': {
+                    'y': 2.0e-6,                # Wide enough to capture mode
+                    'z': 1.0e-6                 # Include waveguide height
+                },
+                'orientation': 'x_normal',       # Normal to x-plane (propagation in +x)
+                'injection_axis': 'x'           # Injection direction
+            },
+            
+            # ==== WAVELENGTH AND FREQUENCY SETTINGS ====
+            'wavelength': {
+                'center': self.device_specs['wavelength']['center'],    # From device specs
+                'span': self.device_specs['wavelength']['span'],        # From device specs
+                'frequency_points': self.device_specs['wavelength']['num_points'],
+                'use_wavelength_sweep': True,   # Enable wavelength sweep
+                'optimization_range': True      # Use for optimization
+            },
+            
+            # ==== MODE SOURCE SPECIFIC SETTINGS ====
+            'mode_settings': {
+                'mode_selection': 'fundamental TE mode',  # Select fundamental TE mode
+                'mode_calculation': 'auto',     # Auto calculate modes
+                'number_of_modes': 5,           # Calculate first 5 modes
+                'search_index': 3.2,            # Search around Si effective index
+                'bent_waveguide': False,        # Straight waveguide
+                'mode_number': 1,               # Use mode #1 (fundamental)
+                'effective_index_calculation': True,
+                'direction': 'forward'          # Forward propagation (+x direction)
+            },
+            
+            # ==== POLARIZATION AND AMPLITUDE ====
+            'excitation': {
+                'polarization': 'TE',           # TE polarization (Ey dominant)
+                'amplitude': 1.0,               # Source amplitude
+                'phase': 0.0,                   # Phase in degrees
+                'power': 1.0,                   # Normalized power
+                'field_component': 'Ey'         # Primary field component
+            },
+            
+            # ==== TIME DOMAIN SETTINGS ====
+            'time_domain': {
+                'pulse_type': 'continuous',     # 'continuous' or 'pulsed'
+                'offset': 0.0,                  # Time offset
+                'pulse_length': None,           # For pulsed sources
+                'bandwidth_limit': False        # Bandwidth limiting
+            },
+            
+            # ==== ADVANCED SETTINGS ====
+            'advanced': {
+                'override_global_source_settings': False,
+                'optimize_for_short_pulse': False,
+                'rotations': {
+                    'theta': 0.0,               # Rotation angles
+                    'phi': 0.0,
+                    'psi': 0.0
+                },
+                'multifrequency_beam_calculation': True,
+                'modal_properties_calculation': True
+            }
+        }
+    
     def setup_monitor_names(self):
         """
         Define configurable monitor names to replace hardcoded values.
@@ -1017,28 +1094,55 @@ class DeviceConfig:
                 self._add_index_monitor_fdtd(fdtd, monitor_name, monitor_config)
     
     def _add_source_to_fdtd(self, fdtd):
-        """Add source for simulation"""
+        """Add comprehensive source configuration to FDTD simulation"""
         
+        source_config = self.source_config
+        geometry = source_config['geometry']
+        wavelength = source_config['wavelength']
+        mode_settings = source_config['mode_settings']
+        excitation = source_config['excitation']
+        
+        # Add mode source
         fdtd.addmode()
-        fdtd.set('name', 'source')
+        fdtd.set('name', source_config['name'])
+        fdtd.set('enabled', source_config['enabled'])
         
-        # Position source in input waveguide
-        fdtd.set('x', -7.0e-6)  # In input waveguide
-        fdtd.set('y', 0.0)
-        fdtd.set('z', 110e-9)
-        fdtd.set('y span', 2.0e-6)
-        fdtd.set('z span', 1.0e-6)
+        # Set position and geometry
+        fdtd.set('x', geometry['position']['x'])
+        fdtd.set('y', geometry['position']['y'])
+        fdtd.set('z', geometry['position']['z'])
+        fdtd.set('y span', geometry['span']['y'])
+        fdtd.set('z span', geometry['span']['z'])
         
-        # Set wavelength
-        wl_settings = self.device_specs['wavelength']
-        fdtd.set('center wavelength', wl_settings['center'])
-        fdtd.set('wavelength span', wl_settings['span'])
+        # Set injection axis and direction
+        fdtd.set('injection axis', geometry['injection_axis'])
+        fdtd.set('direction', mode_settings['direction'])
         
-        # Mode settings
-        fdtd.set('mode selection', 'fundamental TE mode')
-        fdtd.set('direction', 'forward')
-        fdtd.set('amplitude', 1.0)
-        fdtd.set('phase', 0.0)
+        # Set wavelength/frequency settings
+        fdtd.set('center wavelength', wavelength['center'])
+        fdtd.set('wavelength span', wavelength['span'])
+        if wavelength['use_wavelength_sweep']:
+            fdtd.set('number of frequency points', wavelength['frequency_points'])
+        
+        # Set mode calculation settings
+        fdtd.set('mode selection', mode_settings['mode_selection'])
+        fdtd.set('mode calculation', mode_settings['mode_calculation'])
+        fdtd.set('number of modes for expansion', mode_settings['number_of_modes'])
+        fdtd.set('search', 'max index')
+        fdtd.set('index', mode_settings['search_index'])
+        fdtd.set('bent waveguide', mode_settings['bent_waveguide'])
+        fdtd.set('selected mode numbers', [mode_settings['mode_number']])
+        
+        # Set excitation properties
+        fdtd.set('amplitude', excitation['amplitude'])
+        fdtd.set('phase', excitation['phase'])
+        
+        # Set advanced properties
+        advanced = source_config['advanced']
+        if advanced['override_global_source_settings']:
+            fdtd.set('override global source settings', True)
+        
+        print(f"Source '{source_config['name']}' configured: {mode_settings['mode_selection']} at {wavelength['center']*1e9:.0f} nm")
     
     def _set_material_properties_fdtd(self, fdtd, object_name, material_def):
         """Set material properties in FDTD for an object"""
@@ -1202,6 +1306,15 @@ class DeviceConfig:
         print(f"\nSimulation Domain:")
         print(f"  Dimensions: {sim['x_span']*1e6:.1f} × {sim['y_span']*1e6:.1f} × {sim['z_span']*1e6:.1f} μm³")
         
+        # Source settings
+        source = self.source_config
+        print(f"\nSource Configuration:")
+        print(f"  Type: {source['source_type']}")
+        print(f"  Position: ({source['geometry']['position']['x']*1e6:.1f}, {source['geometry']['position']['y']*1e6:.1f}) μm")
+        print(f"  Mode: {source['mode_settings']['mode_selection']}")
+        print(f"  Direction: {source['mode_settings']['direction']}")
+        print(f"  Wavelength: {source['wavelength']['center']*1e9:.0f} ± {source['wavelength']['span']*1e9/2:.0f} nm")
+        
         # Monitor count
         monitor_counts = {
             'Mode Expansion': len(self.mode_expansion_monitors),
@@ -1304,6 +1417,18 @@ def get_fabrication_constraints():
 def get_performance_targets():
     """Return performance targets"""
     return device_config.device_specs['targets']
+
+def get_source_config():
+    """Return source configuration"""
+    return device_config.source_config
+
+def get_source_wavelength_settings():
+    """Return source wavelength settings"""
+    return device_config.source_config['wavelength']
+
+def get_source_mode_settings():
+    """Return source mode settings"""
+    return device_config.source_config['mode_settings']
 
 # ============================================================================
 # MAIN EXECUTION
