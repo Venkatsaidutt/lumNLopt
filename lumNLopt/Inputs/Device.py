@@ -10,7 +10,6 @@ Contains:
 5. FSP file management and output settings
 6. Material definitions using Lumerical's most generalized format
 
-This replaces the separate Structure.py and Monitors.py files for cleaner integration.
 """
 
 import numpy as np
