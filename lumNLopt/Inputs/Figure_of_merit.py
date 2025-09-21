@@ -9,7 +9,7 @@ The configuration here will be used to initialize the AdiabaticCouplingFOM class
 
 import numpy as np
 import lumapi
-
+from lumNLopt.Inputs.Device import get_device_config, get_monitor_names, get_wavelength_settings
 # ============================================================================
 # OPTIMIZATION OBJECTIVES CONFIGURATION
 # ============================================================================
