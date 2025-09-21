@@ -5,7 +5,6 @@ This file defines the optimization objectives, target values, weights, and
 monitor connections for the adiabatic edge coupler optimization.
 
 The configuration here will be used to initialize the AdiabaticCouplingFOM class.
-Now correctly imports from Device.py after deletion of Structure.py and Monitors.py.
 """
 
 import numpy as np
