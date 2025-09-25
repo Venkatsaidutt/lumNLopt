@@ -1,6 +1,6 @@
 # lumNLopt
-Python based optimization wrapper for lumerical using NLOpt building upon lumapi and using parameter clustering for reduced parameter space.
-
+Python based optimization wrapper for lumerical using NLOpt building upon lumapi and XAD for Gradient Calculation and using parameter clustering for reduced parameter space.
+, 
 Things to Do
 
 
