@@ -46,4 +46,5 @@ This loop repeats until the FOM converges or the maximum number of iterations is
 
 ## Acknowledgements
 
-This work is built upon the excellent foundations provided by several open-source projects and commercial software packages. I gratefully acknowledge the developers and communities **lumerical**, **NLopt**, **XAD**, **numpy**, **matplotlib**, and others 
+This work is built upon the excellent foundations provided by several open-source projects and commercial software packages. I gratefully acknowledge the developers and communities **lumerical**, **NLopt**, **XAD**, **numpy**, **matplotlib**, and others. **Thank you Sweet People**
+ 
