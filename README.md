@@ -1,6 +1,6 @@
 # Inverse Design using Lumerical with NLopt
 
-This repository provides a Python-based wrapper for performing inverse design of photonic components using Lumerical's FDTD solver. The Core intent is to enable Dispersion and anisotropy into inverse design lumerical. There is a decent progress so far Current looking into syntax issues and lots of variable naming issues.
+This repository provides a Python-based wrapper for performing inverse design of photonic components using Lumerical's FDTD solver. The Core intent is to enable Dispersion and anisotropy into inverse design lumerical. There is a little progress so far Current looking into syntax issues, some placeholder functions and lots of variable naming issues.
 
 I have written it partly by myself and partly using AI, Some references that helped while building this 
 
@@ -46,5 +46,5 @@ This loop repeats until the FOM converges or the maximum number of iterations is
 
 ## Acknowledgements
 
-This work is built upon the excellent foundations provided by several open-source projects and commercial software packages. I gratefully acknowledge the developers and communities **lumerical**, **NLopt**, **XAD**, **numpy**, **matplotlib**, and others. **Thank you Sweet People**
+This work is built upon the foundations provided by several open-source projects and commercial software packages. I gratefully acknowledge the developers and communities **lumerical**, **NLopt**, **XAD**, **numpy**, **matplotlib**, and others. **Thank you People**
  
