@@ -4,9 +4,8 @@ Python based optimization wrapper for lumerical using NLOpt building upon lumapi
 
 
 
-Things to Do
+#Things to Do#
 
 
-Deleting alternate Workflows,
 Tests,
 Examples
